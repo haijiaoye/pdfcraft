@@ -124,25 +124,36 @@ fn telugu_ui_text_uses_craft_fonts() {
     }
 }
 
-/// On a machine with a suitable installed font, the installed definitions end every family
-/// with it and Arabic text has glyphs; the embedded-only definitions never name it.
+/// On a machine with suitable installed fonts, the installed definitions put a last-resort face
+/// for each uncovered script at the end of every family (so Arabic, and now Chinese, get real
+/// glyphs); the embedded-only definitions never name those faces.
 #[test]
 fn system_fallback_fills_missing_scripts() {
-    assert!(!theme::font_definitions().font_data.contains_key(theme::SYSTEM_FALLBACK));
+    assert!(theme::font_definitions().font_data.keys().all(|k| !k.starts_with("system-")));
     let defs = theme::installed_font_definitions(false);
-    if !defs.font_data.contains_key(theme::SYSTEM_FALLBACK) {
+    let system: Vec<String> = defs.font_data.keys().filter(|k| k.starts_with("system-")).cloned().collect();
+    if system.is_empty() {
         eprintln!("skipping system_fallback_fills_missing_scripts: no installed fallback font (or PDFCRAFT_SYSTEM_FONTS=0)");
-        assert!(defs.families.values().all(|stack| !stack.iter().any(|n| n == theme::SYSTEM_FALLBACK)));
+        assert!(defs.families.values().all(|stack| stack.iter().all(|n| !n.starts_with("system-"))));
         return;
     }
-    for (family, stack) in &defs.families {
-        assert_eq!(stack.last().map(String::as_str), Some(theme::SYSTEM_FALLBACK), "{family:?}: {stack:?}");
-        assert_eq!(stack.iter().filter(|n| *n == theme::SYSTEM_FALLBACK).count(), 1, "{family:?}");
+    // Every family ends with the installed faces.
+    for name in &system {
+        for (family, stack) in &defs.families {
+            assert!(stack.iter().any(|n| n == name), "{family:?} missing {name}");
+        }
     }
     let mut fonts = Fonts::new(TextOptions::default(), defs);
     for id in families() {
         assert!(fonts.has_glyphs(&id, ARABIC), "{id:?} lacks {ARABIC}");
         assert!(fonts.has_glyphs(&id, "PdfCraft"), "{id:?}");
+    }
+    // A CJK fallback covers Chinese UI text (file names, Chinese locale strings).
+    if system.iter().any(|n| n == "system-cjk") {
+        let mut cjk_fonts = Fonts::new(TextOptions::default(), theme::installed_font_definitions(false));
+        for id in families() {
+            assert!(cjk_fonts.has_glyphs(&id, CHINESE), "{id:?} lacks {CHINESE}");
+        }
     }
     assert!(layout_widths(&mut fonts, ARABIC).iter().all(|w| w.is_finite() && *w > 0.0));
 }
